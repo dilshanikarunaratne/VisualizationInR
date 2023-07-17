@@ -1,0 +1,751 @@
+---
+title: "MA304_2211744"
+output: html_document
+date: "2023-04-09"
+---
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE , warning = FALSE, comment = NULL)   
+
+#Call the neccessary libraries to perform the functions to produce the visualizations
+
+#install.packages("plotly")
+#install.packages("rlang")
+#install.packages("xfun")
+#update.packages()
+#install.packages("dplyr")
+#install.packages("ggplot2")
+#install.packages("kableExtra")
+#install.packages("gridExtra")
+#install.packages("RColorBrewer")
+#install.packages("scales")
+
+library(knitr)
+
+```
+
+## Dallas, Texas Crime Data in 2016
+
+This document presents insights through visualizations of a data set from Dallas, Texas on how police officers have faced different incidents and if the incident concluded with arresting of the subjects in 2016. The data set has 47 variables and 2383 observations. The data set includes quantitative variables, qualitative variables, date and time variables, text data, and coordinates. The data set has variables that explain the incidents, date, time, and location of incidents happened, subject gender, subject race, subject description if the subjects have been injured or not if the subjects have been hospitalized, gender, race, and number of years on the force of the officers involved in the incidents if the officers have been injured and hospitalized if the officers have used one or more forces during the incident and the reason to use force if the subject has been arrested if the forces have been useful. In the next sections of this report, I am going to present important features and insights.
+
+First, I am going to show a summary of the people who have caused the incidents in the following table.
+
+```{r table1, message=FALSE, warning=FALSE}
+
+library(dplyr)
+library(rlang)
+library(gridExtra) 
+library(kableExtra)
+library(tidyr)
+
+#Load data set
+dallas <- read.csv("C:/Users/Dilshani/OneDrive - University of Essex/MA304/Assignment/37-00049_UOF-P_2016_prepped.csv")
+#load("C:/Users/Dilshani/OneDrive - University of Essex/MA331/Assignment/ted_talks.rda")
+#load("C:/Users/dm22824/OneDrive - University of Essex/MA304/Assignment/37-00049_UOF-P_2016_prepped.csv")
+
+#Remove first row which contains the column names
+dallas_adjusted <- dallas[-1, ]
+
+#To retrieve unique/distinctive rows from the dataframe 
+dallas_adjusted = distinct(dallas_adjusted)
+
+#Creating a copy (because I will need the original data set)
+dallas_adjusted1 <- dallas_adjusted
+
+#Group NULL and Unkown subject gender values to 'Not Recorded'
+dallas_adjusted1$SUBJECT_GENDER_NEW <- ifelse(dallas_adjusted$SUBJECT_GENDER == "NULL", 'Not Recorded', ifelse(dallas_adjusted$SUBJECT_GENDER == "Unknown", 'Not Recorded', dallas_adjusted$SUBJECT_GENDER))
+
+#Group subject description to simplify the number of groups. 
+dallas_adjusted1 <-
+  dallas_adjusted1 %>%
+  mutate(SUBJECT_DESCRIPTION = case_when(
+    SUBJECT_DESCRIPTION == 'NULL' ~ 'Unknown',
+    SUBJECT_DESCRIPTION == 'Unknown Drugs' ~ 'Drugs',
+    SUBJECT_DESCRIPTION == 'Marijuana' ~ 'Drugs',
+    SUBJECT_DESCRIPTION == 'FD-Suspect w/ Gun' ~ 'Armed(Gun/Other Weapon)',
+    SUBJECT_DESCRIPTION == 'FD-Suspect w/ Other Weapon' ~ 'Armed(Gun/Other Weapon)',
+    SUBJECT_DESCRIPTION == 'FD-Animal' ~ 'Animal',
+    TRUE ~ SUBJECT_DESCRIPTION))
+  
+#Generates a two-way table or frequency table displaying the number of observations for each combination of factors SUBJECT_GENDER_NEW and SUBJECT_DESCRIPTION
+tab1 <- table(dallas_adjusted1$SUBJECT_DESCRIPTION, dallas_adjusted1$SUBJECT_GENDER_NEW)
+
+#Descendingly ranks the rows of a table depending on their sum
+tab1 <- tab1[rev(order(rowSums(tab1))),]
+
+#Generates a table, styles the table by striping the rows and adding hover effects Add a header row above the current column names; as the table has four columns, the header covers four columns.
+kable(tab1, col.names = c( "Female", "Male", "Not Recorded"), align = "ccc") %>%
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = T) %>%
+  add_header_above(c("Subject description and Wrongdoer Gender" = 4)) 
+
+```
+
+This data set consists of many incidents where the subject description is not collected. However, the table depicts that most of the incidents are caused by people with mental instability. Most of the male subjects have caused incidents due to drug intake whilst alcohol consumption is a little less than drugs. Female subjects have caused fewer incidents due to alcohol or drugs. There are around 300 incidents that have undetected subject backgrounds, these could be cases of alcohol, drugs, mental instability, or armed cases that haven't been proven. Motor vehicles and animals have caused the least amount of incidents. 
+
+The above table shows that most of the victims are males. Let's explore how many male and female officers are involved in these incidents. 
+
+```{r, table2, message=FALSE, warning=FALSE}
+
+#builds a count table for the OFFICER_GENDER
+tab2 <- table(dallas_adjusted$OFFICER_GENDER)
+
+#generates a table, styles the table by striping the rows and adding hover effects Add a header row above the current column names; as the table has four columns, the header covers four columns.
+kable(tab2, format = "html", col.names = c( "Gender", "Frequency")) %>% 
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE, position = "center")%>%
+  add_header_above(c("Officer Gender Breakdown" = 2)) 
+
+```
+
+The table depicts that male officers had involved in the incidents more than female officers. Male officers' contribution is almost 9 times of female officers contribution. 
+
+```{r, plot1, fig.align='center', message=FALSE, warning=FALSE}
+
+library(vctrs)
+library(ggplot2)
+library(RColorBrewer)
+library(ggrepel)
+library(scales)
+library(plotly)
+
+#Filtering and removing certain observations according to SUBJECT_GENDER, SUBJECT_RACE, SUBJECT_WAS_ARRESTED and creating a new data frame called 'dallas_new'.
+#Here only male and female subjects are selected where they have been arrested during the incident.
+dallas_new <-
+  dallas_adjusted %>%
+  filter(SUBJECT_GENDER == 'Male' | SUBJECT_GENDER == 'Female') %>%
+  filter(!is.na(SUBJECT_GENDER)) %>%
+  filter(SUBJECT_WAS_ARRESTED == 'Yes')
+
+#Creating a ggplot on the new data frame created to plot subject gender occurrences against officer years on force. Facet_wrap is used to divide the injured and not injured subjects.
+p <- 
+  dallas_new %>%
+  mutate(OFFICER_YEARS_ON_FORCE = as.numeric(as.character(OFFICER_YEARS_ON_FORCE))) %>%  
+  arrange(OFFICER_YEARS_ON_FORCE) %>%
+  ggplot(aes(x=OFFICER_YEARS_ON_FORCE, y=SUBJECT_GENDER)) +
+  geom_jitter(aes(color=SUBJECT_GENDER), alpha=0.5, size=1.5) +
+  xlab("Officer Years on Force") +
+  ylab("Arrested Subject Gender") +
+  scale_color_brewer(palette = "Set1") +
+  ggtitle("Dot Plot of Subject Gender, Subject Description, and Subject Race in Dallas dataset") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  facet_wrap(~SUBJECT_INJURY, ncol = 1) +
+  theme_bw(base_size = 12)+
+  theme(plot.title = element_text(size = 12, hjust = 0.5, face = "bold", vjust = 1.5 , margin = margin(b = 10))) +
+  guides(color=FALSE)
+
+#Display the interactive plot
+ggplotly(p)%>% 
+  htmltools::div(style = "margin: auto;")
+
+
+```
+
+The above dot plot depicts the distribution of subjects male and female subjects who were arrested by officers at the time being an officer in Dallas, Texas. The dot plot portrays that more subjects have been arrested by officers who are in their early years of being an officer which is from 0 to 10 years. The number of arrest cases by officers with more experienced officers is less. The total of injured subject incidents is less than the total of not injured subject incidents.
+
+
+Next, let's see how many incidents have ended up with arresting the wrongdoer.
+
+
+```{r chart3, message=FALSE, warning=FALSE,  fig.align='center'}
+
+#Produces a frequency table for the variable SUBJECT_WAS_ARRESTED 
+tab3 <- table(dallas_adjusted$SUBJECT_WAS_ARRESTED)
+
+#provides the proportion of each SUBJECT_RACE category
+tab3_Prob = tab3/nrow(dallas_adjusted)*100
+
+#produces the labels for a pie chart displaying the distribution of the variable SUBJECT_WAS_ARRESTED
+pieLabels = paste(unique(sort(dallas_adjusted$SUBJECT_WAS_ARRESTED)),
+                  "\n",
+                  "n=",
+                  sort(tab3), 
+                  "\n", 
+                  round(tab3_Prob,1),
+                  "%")
+
+#Make a three-color vector using the "Set1" color palette.
+colors1 <- brewer.pal(3, "Set1")
+
+#Create a data frame with subjects who were arrested and get the total of arrested subjects by their race.
+#Missing values of subject race is set to 'Unknown'
+wrongdoers <-
+  dallas_adjusted %>%
+  select(SUBJECT_RACE, SUBJECT_WAS_ARRESTED) %>%
+  filter(SUBJECT_WAS_ARRESTED == 'Yes') %>%
+  mutate(SUBJECT_RACE = case_when(
+    SUBJECT_RACE == 'NULL' ~ 'Unknown',
+    TRUE ~ SUBJECT_RACE)) %>%
+  group_by(SUBJECT_RACE) %>%
+  summarise(n = n())
+
+#As the visualization will be noisy and unnoticeable, only totals more than 10 is selected to the data frame.
+wrongdoers <- wrongdoers %>%
+  filter(n > 10)
+
+#create a data frame filtering and keeping only arrested subjects.
+#This is to calculate the proportion of subject race.
+arrested <- 
+  dallas_adjusted %>%
+  select(SUBJECT_RACE, SUBJECT_WAS_ARRESTED) %>%
+  filter(SUBJECT_WAS_ARRESTED == 'Yes')
+
+#Create a numeric vector containing the likelihood of getting arrested for each race. 
+wrongdoers_prob <- wrongdoers$n/nrow(arrested)*100
+
+#Convert the vector into a dataframe
+wrongdoers <- as.data.frame(wrongdoers)
+
+#produces the labels for a pie chart displaying the distribution of the variable SUBJECT_RACE
+pieLabels2 = paste(unique(sort(wrongdoers$SUBJECT_RACE)),
+                  "\n",
+                  round(wrongdoers_prob,1),
+                  "%")
+
+#define the color palatte to be used and number of colors needed.
+colors2 <- brewer.pal(4, "Set3")
+
+#Changes the plotting area to have one row and two columns for the following two plots to be presented side by side in the same plot window
+par(mfrow=c(1,2))   
+
+#Create the plot to visualize the arrested and not arrested percentages
+pie(tab3,
+    labels = pieLabels,
+    main = "Arrested and Not Arrested Percentages",
+    radius = 1,
+    border = "black",
+    lty = 1,
+    cex=0.7,
+    font = 4,
+    cex.main = 0.8,
+    font.main = 2,
+    col = colors1)
+
+#Create the plot to visualize the percentage of arrested subject race
+pie(wrongdoers$n,
+    labels = pieLabels2,
+    main = "Arrested Subject Race",
+    radius = 1,
+    border = "black",
+    lty = 1,
+    cex=0.7,
+    font = 4,
+    cex.main = 0.8,
+    font.main = 2,
+    col = colors2)
+
+
+
+
+```
+
+Only 14.1% of subjects have not been arrested which is less than a quarter of the incidents that happened. 
+85.9% of incidents are closed by arresting the subject. Most of the arrested subjects are black people and it is more than half of the arrested cases while Hispanic people and white people have closer percentages around 20% of being arrested. It can be said that there can be 1 black person in every 2 arrested incidents.
+
+Let's explore what are the offenses that have been recorded.
+
+
+```{r plot2,  fig.align='center', message=FALSE, warning=FALSE}
+
+library(tidyverse)
+library(tidytext)
+library(textdata)
+
+#Subject offenses have multiple categories which can be simplified by collating similar categories. In order to do it, first, SUBJECT_OFFENSE is separated by "," and put into a new column 
+dallas_adjusted <- separate(dallas_adjusted, SUBJECT_OFFENSE, into = c("OFFENSE"), sep = ",", remove = FALSE)
+
+#Separated offenses are collated according to similary offenses
+dallas_adjusted <-
+  dallas_adjusted %>%
+  mutate(OFFENSE = case_when(
+    OFFENSE == 'Assault/FV' ~ 'Assault',
+    TRUE ~ OFFENSE))
+
+#Create a table of subject_offense counts
+offense_counts <- table(dallas_adjusted$OFFENSE, dallas_adjusted$SUBJECT_INJURY)
+#offense_counts <- sort(offense_counts, decreasing = TRUE)
+
+#Convert the table to a data frame
+offense_counts_df <- as.data.frame(offense_counts)
+
+#Rename the dataframe columns
+names(offense_counts_df) <- c("Offense", "Injury", "Count")
+
+#Keep only offenses with count of more than 20
+offense_counts_df <-
+  offense_counts_df %>%
+  filter(Count >= 20 ) 
+
+# create a stacked bar plot to visualize the offenses and the counts by incidents where subject has been injured or not.
+p1 <- ggplot(offense_counts_df, aes(x=Offense, y=Count, fill=Injury)) + 
+  geom_bar(stat="identity", position="stack") + 
+  xlab("Offense") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), axis.title.x = element_text(vjust = -3,margin = margin(t = 10))) +
+  labs(fill="Injured") +
+  ggtitle("Disrtibution of Offenses by Subject Injury or not") +
+  theme(plot.title = element_text(size = 12, hjust = 0.5, face = "bold", vjust = 1.5 , margin = margin(b = 10))) 
+
+#Display the interactive plot
+ggplotly(p1) %>% 
+  htmltools::div(style = "margin: auto;")
+
+```
+
+The above table presents the types of offenses and if it has ended with the subject being injured. There are a wide variety of offenses that occurred in Dallas, Texas in 2016. APOWW cases take the lead by having more than 350 incidents. Almost 1/3 of the APOWW cases have caused no subject injury. The data set has recorded the "No arrest" offense as the second highest of the incidents where an arrest has not occurred but incidents were reported. However, there have been few incidents where the subject was injured even in no arrest incidents. Public intoxication, warrant/hold, assault, evading assault, and assault/public servant are the other offenses that have made the subject injure. The rest of the offenses have not recorded any subject injuries are less in number when compared to incidents with subject injuries. A few of those offenses are burglary of a vehicle, theft, traffic violation, and drug possession which have recorded counts around or less than 50.  
+
+
+
+```{r plot3, fig.align='center', message=FALSE, warning=FALSE}
+
+#Convert OFFICER_YEARS_ON_FORCE column to a numeric column
+dallas_adjusted$OFFICER_YEARS_ON_FORCE <- as.numeric(dallas_adjusted$OFFICER_YEARS_ON_FORCE)
+
+#Creating a density plot to visualize the count of subjects arrested and not arrested against the number of years on force of the officers. Density curves are grouped by SUBJECT_WAS_ARRESTED.
+p2 <- ggplot(dallas_adjusted, aes(x = OFFICER_YEARS_ON_FORCE, group=SUBJECT_WAS_ARRESTED, fill=SUBJECT_WAS_ARRESTED)) +
+  geom_density(adjust=1.5, alpha=.6) +
+  theme_minimal() +
+  ylab("Frequency") +
+  xlab("Officer Years on Force") +
+  scale_x_continuous(breaks = seq(0, 30, by = 2))+
+  labs(fill = "Arrested") +
+  ggtitle("Density plot of subject arrested/not arrested against officer years on force") +
+  theme(plot.title = element_text(size = 12, hjust = 0.5, face = "bold", vjust = 1.5 , margin = margin(b = 10)))
+
+#display the interactive density plot.
+ggplotly(p2) %>% 
+  htmltools::div(style = "margin: auto;")
+
+
+```
+
+The above density plot depicts the likelihood of the subject being arrested by officers. Officer years on force have been used as a measure to compare if the experience affects the number of arrest cases.
+
+The plot delineates that officers with experience of 2 to 4 years have the highest amount of arrests in Dallas, Texas in 2016. Officers with experience of up to 10 years show more than a 50% of chance of arresting subjects. The plot portrays that after 11 years of experience, there's only less than a 25% of likelihood arresting the subjects. However, there is a hike of around 24 to 28 years of experience but it still is less than 25% likelihood. The beginners with 0 years of experience show around a 50% likelihood of catching the subjects while beginners with 1 year of experience have a 75% of likelihood arresting the subject. 
+
+On the other hand, not arrested incidents show a similar pattern to arrested incidents. The plot also portrays that officers with 0 to 4 years of experience have the highest likelihood of not arresting the subjects. The likelihood of not arresting the subject has lessened with the years on the force. It has ups and downs around 14 to 20 and 24 to 28 years on the force. 
+
+Overall, both arresting and not arresting has a pattern of high likelihood for early years on the force and it decreases with the number of years on the force. 
+
+Next, I am going to present the association of officer years on the force and an officer hospitalization in the incidents. I further categorized it as male and female. 
+
+
+```{r plot4, fig.align='center', message=FALSE, warning=FALSE}
+
+
+#Keep only records with officer gender equal to male or female
+officer_hospitalization <- 
+  dallas_adjusted %>%
+  filter(OFFICER_GENDER == 'Male' || OFFICER_GENDER == 'Female')
+
+#Create box plots of officer hospitalization by gender according to officer years on force.
+#Box plots are divided by officer gender and two colors are used to display hospitalized and not hospitalized plots.
+p3 <- ggplot(officer_hospitalization, aes(x = OFFICER_HOSPITALIZATION , y = OFFICER_YEARS_ON_FORCE, fill = OFFICER_HOSPITALIZATION)) +
+  geom_boxplot() +
+  ggtitle("Boxplot of Officer Hospitalization by Gender") +
+  theme(plot.title = element_text(size = 12, hjust = 0.5, face = "bold", vjust = 1.5 , margin = margin(b = 10))) +
+  ylab("Officer years on force") +
+  xlab("Officer Hospitalization") +
+  facet_wrap(~ OFFICER_GENDER) +
+  scale_fill_brewer(palette = "Set1") +
+  guides(fill = FALSE)
+
+#Display the interactive box plots
+ggplotly(p3) %>% 
+  htmltools::div(style = "margin: auto;")
+ 
+```
+
+The box plots depict the spread of years on the force for officers who were hospitalized (red) and those who were not (blue). The boxes indicate the distribution's interquartile range (IQR), having the median point shown in the center of the box. The whiskers reach the highest extreme data point within 1.5 times the IQR, and all that outside the whiskers is deemed an outlier.
+
+The box plots depict similar patterns in hospitalization for males and females. Males with experience around 3 to 14 have been mostly hospitalized with a median of around 7 years of experience. Female officers with experience of around 2 to 11 have been hospitalized mostly with a median of around 4 years of experience.
+
+Many outliers can be seen for both male and female not hospitalized box plots. Outliers are present after 20 years of experience for both genders. Females on the force for 3 to 9 years have not been hospitalized in the incidents with a median of 4 years on the force whilst it's 4 to 10 years on the force for male officers with a median of 6 years on the force. 
+
+Next, I am going to analyze the types of forces used in the incidents by officers with respect to their years on the force.
+
+
+```{r plot5, message=FALSE, warning=FALSE,  fig.align='center'}
+
+#Select records where second type of force has been used
+no_second_force <- 
+  dallas_adjusted %>%
+  filter(TYPE_OF_FORCE_USED2 != '')
+
+#select only incidents where only one type of force has been used by removing records with empty values for second type of froce
+only_one_force <-
+  dallas_adjusted %>%
+  anti_join(no_second_force)
+
+#Create a violin plot of types of forces used by officers with different years of experience for the data frame of only one force has been used during the incidents.
+ggplot(only_one_force, aes(x="", y=OFFICER_YEARS_ON_FORCE, fill=TYPE_OF_FORCE_USED1)) + 
+  geom_violin(trim=FALSE, scale="width") +
+  ylab("Officer Years on Force") +
+  xlab("Force Used") +
+  ggtitle("Distribution of Officer Years Where incident is closed on first force") +
+  theme_minimal() +
+  theme(legend.position="bottom", axis.line=element_blank(), axis.ticks=element_blank(), legend.text=element_text(size=6), legend.title=element_text(size=12)) +
+  theme(plot.title = element_text(size = 12, hjust = 0.5, face = "bold", vjust = 1.5 , margin = margin(b = 10)),
+        panel.grid.major.y = element_line(linetype = "dashed")) +
+  scale_fill_discrete(name=NULL)
+
+
+```
+
+A violin plot is a data visualization technique that incorporates the characteristics of a boxplot with a kernel density plot. It depicts how a continuous variable spread among distinct categories or groupings. The violin plot's shape shows the density of the data at different values, with broader sections representing greater-density regions and narrower parts suggesting lower-density regions. 
+
+Take Down-Head is used widely used by officers with zero to 40 years of experience. The leg restraint system is the least used and it is only used by officers on the force for 4 to 7 years. K-9 Deployment is only used by officers with experience of more than 10 years. 
+Many officers with 0 to 40 years on force have used other impact weapons in the incidents that happened in Dallas, Texas in 2016. Overall, officers with experience of 5 to 10 years have used the different types of forces equally apart from Feet/Leg/Knee strike, Leg restraint system, and K-9 Deployment.
+
+
+Next, I have plotted the total number of forces used for each incident against the officer years on the force for incidents from Dallas, Texas in 2016.
+
+
+
+
+
+```{r  plot6, message=FALSE, warning=FALSE, fig.align='center'}
+
+
+# Replace values with 0 ifor null values and 1 for text values n each column
+dallas_adjusted1$TYPE_OF_FORCE_USED1 <- ifelse((dallas_adjusted1$TYPE_OF_FORCE_USED1 == ''), 0, 1)
+dallas_adjusted1$TYPE_OF_FORCE_USED2 <- ifelse((dallas_adjusted1$TYPE_OF_FORCE_USED2 == ''), 0, 1)
+dallas_adjusted1$TYPE_OF_FORCE_USED3 <- ifelse((dallas_adjusted1$TYPE_OF_FORCE_USED3 == ''), 0, 1)
+dallas_adjusted1$TYPE_OF_FORCE_USED4 <- ifelse((dallas_adjusted1$TYPE_OF_FORCE_USED4 == ''), 0, 1)
+dallas_adjusted1$TYPE_OF_FORCE_USED5 <- ifelse((dallas_adjusted1$TYPE_OF_FORCE_USED5 == ''), 0, 1)
+dallas_adjusted1$TYPE_OF_FORCE_USED6 <- ifelse((dallas_adjusted1$TYPE_OF_FORCE_USED6 == ''), 0, 1)
+dallas_adjusted1$TYPE_OF_FORCE_USED7 <- ifelse((dallas_adjusted1$TYPE_OF_FORCE_USED7 == ''), 0, 1)
+dallas_adjusted1$TYPE_OF_FORCE_USED8 <- ifelse((dallas_adjusted1$TYPE_OF_FORCE_USED8 == ''), 0, 1)
+dallas_adjusted1$TYPE_OF_FORCE_USED9 <- ifelse((dallas_adjusted1$TYPE_OF_FORCE_USED9 == ''), 0, 1)
+dallas_adjusted1$TYPE_OF_FORCE_USED10 <- ifelse((dallas_adjusted1$TYPE_OF_FORCE_USED10 == ''), 0, 1)
+
+#Get the total count of force used in each incident
+dallas_adjusted1$TOTAL_FORCE_USED <- rowSums(dallas_adjusted1[, grep("^TYPE_OF_FORCE_USED", names(dallas_adjusted1))])
+
+#Convert OFFICER_YEARS_ON_FORCE to a numeric column
+dallas_adjusted1 <- dallas_adjusted1 %>% 
+  mutate(OFFICER_YEARS_ON_FORCE = as.numeric(OFFICER_YEARS_ON_FORCE)) %>% 
+  arrange(OFFICER_YEARS_ON_FORCE)
+
+#Create the scatter plot of total forces used against officer years on force, also differentiate the data points by the "Officer Gender" variable.
+#Stat_smooth() is used with method = "lm" to add a linear regression line to the plot, displaying the general trend of the data for both genders.
+p4 <- ggplot(dallas_adjusted1, aes(x = OFFICER_YEARS_ON_FORCE, y = TOTAL_FORCE_USED, color = OFFICER_GENDER)) + 
+  geom_point(alpha = 0.5) +
+  ggtitle("Officer Years on Force vs. Total Force Used") +
+  theme(plot.title = element_text(size = 12, hjust = 0.5, face = "bold", vjust = 1.5 , margin = margin(b = 10))) +
+  labs(x = "Officer Years on Force",
+       y = "Total Force Used",
+       color = "Officer Gender") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 12, hjust = 0.5, face = "bold", vjust = 1.5 , margin = margin(b = 10))) +
+  stat_smooth(method="lm")
+
+#Create the interactive scatterplot
+ggplotly(p4) %>% 
+  htmltools::div(style = "margin: auto;")
+
+
+```
+
+The above scatter plot depicts that most of the officers have used 1 to 3 types of forces during the incidents regardless of the number of years on the force. Officers with 0 to 15 years of experience tend to use more number of forces than officers with experience over 15 years. I have used colors to separate male and female counts of forces against the years on the force. The smooth lines drawn for each gender have a negative slope which indicates that with increasing experience, officers have used less number of forces during incidents. The slopes depict that female officers have used 2 to 3 forces during the incidents more than male officers during the first 5 years on the force. More experienced female officers who have been on the force for 15 to 40 have used less number of forces than which have been used by male officers.
+
+
+```{r, plot7, fig.align='center', message=FALSE, warning=FALSE}
+
+#Separate the effective comment for each type of force used
+df_effective_forces <- separate(dallas_adjusted1, FORCE_EFFECTIVE, c("FORCE1", "FORCE2", "FORCE3", "FORCE4", "FORCE5", "FORCE6", "FORCE7", "FORCE8", "FORCE9", "FORCE10"), sep = ",")
+
+#Count the number of effective forces used in an incident and put into a data frame
+df_effective_forces <- df_effective_forces %>% 
+  rename_all(~trimws(.)) %>%  # Remove leading white spaces from column names
+  rowwise() %>%
+  mutate(count_effective_forces = sum(c_across(starts_with("FORCE")) == " Yes", na.rm = TRUE)) %>%
+  ungroup()
+
+#Create a histogram to visualize the total of effective forces grouped by officer gender
+p5 <- ggplot(df_effective_forces, aes(x = count_effective_forces, fill = OFFICER_GENDER)) +
+  geom_histogram(binwidth = 1, color = "black") +
+  facet_wrap(~ OFFICER_GENDER, ncol = 2) +
+  xlab("Count of Effective Forces") +
+  ylab("Frequency") +
+  ggtitle("Histogram of Count of Effective Forces by Officer Gender") +
+  theme_bw() +
+  scale_fill_manual(values = c("firebrick", "steelblue")) +
+  theme(plot.title = element_text(size = 12, hjust = 0.5, face = "bold", vjust = 1.5 , margin = margin(b = 10)))
+
+#Display the interactive histograms
+ggplotly(p5) %>% 
+  htmltools::div(style = "margin: auto;")
+
+```
+
+
+The plot clearly shows that the number of effective forces used by female officers is a lot less than the number of effective forces used by male officers. Around 140 incidents have happened where female officers have used one effective force during the incidents and it is the highest count of incidents for female officers where effective force has been used. Compared to female officers, male officers have incidents where multiple forces have been effective during the incidents. More than 1000 incidents are recorded to have used one effective force. In around 600 incidents male officers have used two effective forces. Both male and female officers have had incidents where they have not used any effective force.
+
+
+Next, I'm going to draw a pair plot. I am going to compare the total number of forces used, officer years on force, and month.  
+
+```{r  plot8, message=FALSE, warning=FALSE,fig.align='center'}
+
+#If the current SUBJECT_INJURY variable is equal to "Yes," the ifelse() method checks. If it is, the value in the new SUBJECT_INJURY variable is set to 0. If the current SUBJECT_INJURY value is not "Yes", the equivalent value in the new SUBJECT_INJURY variable is set to 1.
+df_effective_forces$SUBJECT_INJURY <- ifelse((df_effective_forces$SUBJECT_INJURY == 'Yes'), 0, 1)
+
+#Load date time library
+library(lubridate)
+
+#In the df_effective_forces data frame, add a new column named month, and use the month() function from the lubridate package to extract the month from the INCIDENT_DATE column, which includes the date of each event.
+df_effective_forces <- 
+  df_effective_forces %>%
+  mutate(month = month(mdy(INCIDENT_DATE)))
+
+#Rename data frame column names
+dallas_adjusted3 <- 
+  df_effective_forces %>%
+  rename("Total forces used" = TOTAL_FORCE_USED, "Officer years on force" = OFFICER_YEARS_ON_FORCE, "Month" = month)
+
+#Load packate to plot pairwise relationships
+library(GGally)
+
+# Subset the columns to use
+cols <- c("Total forces used", "Officer years on force", "Month", "count_effective_forces")
+
+# Define the color palette
+my_colors <- c("#E69F00", "#56B4E9")
+
+
+#install.packages("remotes")
+#library(remotes)
+#remotes::install_github("ggobi/ggally")
+
+
+#The ggpairs function from the GGally package is used to build a scatterplot matrix. The scatterplots for each pair of variables in the cols object will be included in the matrix. The color aesthetic is mapped to the variable SUBJECT_ARRESTED, with points colored according to whether or not the subject was arrested.
+p6 <- ggpairs(dallas_adjusted3[, cols], aes(color = SUBJECT_ARRESTED), 
+        columns = cols, 
+        upper = list(continuous = wrap("cor", method = "pearson", size = 3.5)), 
+        lower = list(continuous = wrap("smooth", size = 0.2)), 
+        diag = list(continuous = wrap("barDiag"), discrete = wrap("barDiag"), na = wrap("naDiag")),
+        mapping = ggplot2::aes(alpha = 0.1)) + 
+  theme_bw()+
+  theme(strip.text.x = element_text(size = 3, color = "blue"),
+        strip.text.y = element_text(size = 3, color = "#DC7633"),
+        axis.text = element_text(size = 3, angle = 0)) +  # set label size and rotation angle
+  ggtitle("Total forces used Vs. officer years on force and Total forces used Vs. Month") +
+  theme(plot.title = element_text(size = 8, hjust = 0.5, face = "bold", vjust = 1 , margin = margin(b = 15)))
+
+#Display the interactive plot
+ggplotly(p6) %>% 
+  htmltools::div(style = "margin: auto;")
+
+
+```
+
+Let's explore the different scenarios depicted in the pair plot.
+
+The upper part of the plot shows the correlations of each two pairs. Officer years on force and total forces used has a correlation of -0.179 which is the lowest correlation among the pairs whilst count of effective forces and total forces used has a correlation of  0.619 which is the highest correlation among the pairs. Month and total forces used, Month and officer years on force 0.011
+count of effective forces and officer years on force, count of effective forces and officer years on force -0.010 have correlations of 0.011, -0.105 and -0.010 respectively.
+
+The diagonal axis presents a bar plots for for each variable used in pairs. The bar plots shows the counts of incidents for each month, total forces used, officer years on force and count of effective forces.
+
+The lower part of the plot has scatter plots with smooth line for each pair. Total forces used and Count of effective forces displays a positive relationship whilst total forces used and officer years on force has a negative relationship. Rest of the pairs have slight negative relationships. 
+
+
+Next, let's look at the correlations between the variables.
+
+
+
+
+
+
+
+
+
+
+```{r ,plot9, fig.align='center', message=FALSE, warning=FALSE}
+
+library(ggcorrplot)
+
+dallas_adjusted4 <- separate(dallas_adjusted1, SUBJECT_OFFENSE, into = c("OFFENSE"), sep = ",", remove = FALSE)
+
+dallas_adjusted4 <- dallas_adjusted4[c("OFFICER_YEARS_ON_FORCE", "SUBJECT_DESCRIPTION", "OFFENSE", "SUBJECT_INJURY_TYPE", 
+                      "OFFICER_INJURY_TYPE", "INCIDENT_REASON", "REASON_FOR_FORCE", "OFFICER_RACE", "SUBJECT_RACE", "DIVISION","TOTAL_FORCE_USED")]
+
+#The as.factor() method is applied to each column to transform the values in that column to a categorical variable.
+dallas_adjusted4$SUBJECT_DESCRIPTION <- as.numeric(as.factor(dallas_adjusted4$SUBJECT_DESCRIPTION))
+dallas_adjusted4$OFFENSE <- as.numeric(as.factor(dallas_adjusted4$OFFENSE))
+dallas_adjusted4$SUBJECT_INJURY_TYPE <- as.numeric(as.factor(dallas_adjusted4$SUBJECT_INJURY_TYPE))
+dallas_adjusted4$OFFICER_INJURY_TYPE <- as.numeric(as.factor(dallas_adjusted4$OFFICER_INJURY_TYPE))
+dallas_adjusted4$INCIDENT_REASON <- as.numeric(as.factor(dallas_adjusted4$INCIDENT_REASON))
+dallas_adjusted4$REASON_FOR_FORCE <- as.numeric(as.factor(dallas_adjusted4$REASON_FOR_FORCE))
+dallas_adjusted4$OFFICER_RACE <- as.numeric(as.factor(dallas_adjusted4$OFFICER_RACE))
+dallas_adjusted4$SUBJECT_RACE <- as.numeric(as.factor(dallas_adjusted4$SUBJECT_RACE))
+dallas_adjusted4$DIVISION <- as.numeric(as.factor(dallas_adjusted4$DIVISION))
+
+
+#Create correlation matrix
+cor_matrix <- cor(dallas_adjusted4)
+
+#Change column and row names
+colnames(cor_matrix) <- c("Officer Years on Force", "Subject Description", "Offense", "Subject Injury Type", "Officer Injury Type", "Incident Reason", "Reason For Force", "Officer Race", "Subject Race", "Division", "Total Force Used")
+rownames(cor_matrix) <- colnames(cor_matrix)
+
+#Plot correlation matrix
+#The type option specifies that just the plot's lowest triangle should be displayed. To display the labels for each variable, the lab parameter is set to TRUE. The lab_size option specifies the label size.
+p7 <- ggcorrplot(cor_matrix, 
+           type = "lower", 
+           lab = TRUE, 
+           lab_size = 1.5, 
+           title = "Correlation Plot for Dallas Data Set",
+           colors = c("#6D9EC1", "white", "#E46726"),
+           outline.color = "white") +
+  theme(axis.text.x = element_text(size = 8),
+        axis.text.y = element_text(size = 8)) +
+  ggtitle("Correlation Plot for Dallas Data Set")+
+  theme(plot.title = element_text(size = 12, hjust = 0.5, face = "bold", vjust = 1 , margin = margin(b = 15)))
+  
+
+#Display the interactive correlation plot
+ggplotly(p7) %>% 
+  htmltools::div(style = "margin: auto;")
+
+
+
+
+```
+
+The above correlation plot shows the correlation between a selected set of variables of the Dallas, Texas data set such as officer years on the force, subject description, offense, subject injury type, officer injury type, incident reason, the reason for force, division, subject race, officer race and total force used. 
+
+Overall, the plot has fewer positive correlations which are shown in red than negative correlations which are shown in blue. There are 2 scenarios where it has no correlation which is shown in white with a value of 0.0 and it is officers' years on forces vs subject injury type and officer injury type. 
+
+The color is an indicator of the strength of the correlation and this correlation plot has no perfect positive or negative correlations. Almost, all the variables have correlations with weak strengths.
+
+Next, I am going to present time series plots. I am considering month and hour against the count of incidents to draw the time series plots and use smooth line and roll mean. 
+
+
+```{r , plot10, fig.align='center', fig.height=4, message=FALSE, warning=FALSE, out.width="100%"}
+
+
+library(zoo)
+
+#Produces a summary of the dallas_adjusted3 data frame, organised by the INCIDENT_DATE field. The mutate function is used to transform the INCIDENT_DATE variable to a date format using the as.Date() function and the%m/%d/%y format string.
+incident_date_summary <- 
+  dallas_adjusted3 %>%
+  mutate(INCIDENT_DATE = as.Date(INCIDENT_DATE, format = "%m/%d/%y")) %>%
+  group_by(INCIDENT_DATE) %>%
+  summarise(n = n())
+
+#Generates a new column smac in the incident_date_summary data frame, which computes the simple moving average of the n column (number of events) over a 12-month rolling window.
+incident_date_summary$smac <- rollmean(incident_date_summary$n, k = 12, fill = NA)
+#incident_date_summary$smar <- rollmean(incident_date_summary$n, k = 12, fill = NA, align="right")
+#incident_date_summary$smal <- rollmean(incident_date_summary$n, k = 12, fill = NA, align="left")
+
+#Creates a line plot of the number of incidents by month
+g1 <- ggplot(incident_date_summary, aes(x = INCIDENT_DATE, y = n)) +
+  geom_line(aes(y = n), color = "#6D9EC1", alpha = 0.8) +
+  geom_smooth(method = "loess", se = FALSE, color = "#DC7633", size = 0.8) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b") +
+  ggtitle("Number of Incidents by Month") +
+  theme(plot.title = element_text(size = 12, hjust = 0.5, face = "bold", vjust = 1.5 , margin = margin(b = 10))) + 
+  theme(axis.text.x = element_text(size = 8),
+        axis.text.y = element_text(size = 8)) +
+  labs(x = "Date", 
+       y = "Number of Incidents")
+
+
+# Split AM and PM hour values from INCIDENT_HOUR and store into a new column
+dallas_adjusted3 <- dallas_adjusted3 %>%
+  mutate(INCIDENT_HOUR = ifelse(is.na(INCIDENT_TIME), NA, as.numeric(str_split(INCIDENT_TIME, ":")[[1]])),
+         INCIDENT_AM_PM = ifelse(grepl("AM", INCIDENT_TIME), "AM", "PM"))
+
+# Convert INCIDENT_TIME to datetime object
+dallas_adjusted3$datetime <- strptime(paste(dallas_adjusted3$INCIDENT_DATE, dallas_adjusted3$INCIDENT_TIME), format = "%m/%d/%y %I:%M:%S %p")
+
+# Extract hour in 24 hour format
+dallas_adjusted3$hour <- format(dallas_adjusted3$datetime, format="%H")
+
+#generates a summary of the dataset by grouping the data by the hour variable (which reflects the hour of the day when the event happened), and then summarising the data by counting the number of incidents (n) that occurred during each hour of the day.
+incident_hour <- 
+  dallas_adjusted3 %>%
+  group_by(hour) %>%
+  summarise(n = n()) %>%
+  ungroup()
+
+#This line of code removes the last row from the incident_hour dataframe as it records null values
+incident_hour <- head(incident_hour, -1)
+
+#Generates a new column smac in the incident_hour data frame, which computes the simple moving average of the n column (number of events) over a 24-hour rolling window.
+incident_hour$smac <- rollmean(incident_hour$n, k = 2, fill = NA)
+#incident_date_summary$smar <- rollmean(incident_date_summary$n, k = 12, fill = NA, align="right")
+#incident_date_summary$smal <- rollmean(incident_date_summary$n, k = 12, fill = NA, align="left")
+
+#The number of incidences by hour of the day is displayed using a ggplot object.
+g2 <- ggplot(incident_hour, aes(x = hour)) +
+  geom_line(aes(y = n, group=1), color = "#6D9EC1", alpha = 0.8) +
+  geom_line(aes(y = smac, group=1), color = "#DC7633", size = 0.8) +
+  ggtitle("Number of Incidents by Hour") +
+  theme(plot.title = element_text(size = 12, hjust = 0.5, face = "bold", vjust = 1.5 , margin = margin(b = 10))) +
+  labs(x = "Hour",
+       y = "Number of Incidents") + 
+  theme(strip.text.x = element_text(size = 3, color = "blue"),
+        strip.text.y = element_text(size = 3, color = "#DC7633"),
+        axis.text = element_text(size = 3, angle = 0))
+
+#Display the time series plots
+grid.arrange(g1, g2, ncol = 2)
+
+```
+
+
+The first-time series plot which is a number of incidents drawn against the month looks very noisy and has frequent ups and downs. However, the smooth line drawn shows a downward curve. The smooth line has two peaks around March to April and September to October. December and November have the lowest count of incidents. 
+
+
+The time series plot on left is the count of incidents drawn against the hour of the day. This plot has ups and downs. It shows that most incidents happened between 8 p.m. and 5 p.m. However, there is another considerable peak which has a value over 150 around 2 a.m. The lowest number of incidents happened around 6 a.m.There is an immediate decrease from 2 a.m. to 6 a.m. and an immediate increase from 2 p.m. to 5 p.m. 
+
+Finally, I am going to draw a map to indicate in which parts of Dallas, Texas these incidents have happened. 
+
+```{r ,map1, message=FALSE, warning=FALSE, fig.align='center', out.width="100%"}
+
+#install.packages("htmltools", version = "0.5.3")
+#Load required libraries
+library(rgdal)
+library(ggplot2)
+library(Rcpp)
+library(sf)
+library(ggmap)
+library(leaflet)
+
+#Convert coordinates to numeric values
+dallas_adjusted$LOCATION_LONGITUDE <- as.numeric(dallas_adjusted$LOCATION_LONGITUDE)
+dallas_adjusted$LOCATION_LATITUDE <- as.numeric(dallas_adjusted$LOCATION_LATITUDE)
+
+# Select the columns of coordinates and summarises the number of occurrences that happened for each unique combination of latitude and longitude coordinates
+incident_locations <- 
+  dallas_adjusted %>% 
+  select(LOCATION_LATITUDE, LOCATION_LONGITUDE) %>%
+  filter(LOCATION_LATITUDE != '' & LOCATION_LONGITUDE != '') %>%
+  group_by(LOCATION_LATITUDE,LOCATION_LONGITUDE ) %>%
+  summarise(n = n()) %>%
+  ungroup()
+
+# Create the leaflet map
+map <- leaflet(data = incident_locations) %>%
+  addTiles() %>%
+  setView(-96.8, 32.8, zoom = 12) %>% 
+  addCircleMarkers(~LOCATION_LONGITUDE, ~LOCATION_LATITUDE, popup = ~n, radius = 3)
+
+# Display the map
+map
+
+```
+
+The above map displays the points where the incidents were happened in Dallas, Texas in 2016. It depicts that there are few clusters where the incidents has repeatedly happened. The middle of the city has the greatest number of points while there are few other clusters in South, South-east, South-west, North, North-west and North-east.
+
+To conclude the report, I can present the following findings.
+
+Although a considerable part of the occurrences had no information on the subject's history, it appears that people with mental instability produced the majority of the incidents. Moreover, among male individuals, drug usage was the most prevalent cause of occurrences, whereas drinking alcohol was rather uncommon. Female individuals were responsible for fewer events caused by drinking or substances.
+
+Also, it is clear that male officers were involved in more incidents than female officers, contributing about 9 times more than female officers. The suspect was arrested in 85.9% of the events, with black people being detained in more than half of these situations. With almost 350 events, the most prevalent offence was Assault Public Officer W/Weapon (APOWW), and over one-third of these incidents did not result in subject harm. The second most prevalent offence was "No arrest" events, which were similarly numerous. The chance of arresting suspects was greatest for officers with 0-4 years of experience and reduced as years on the police increased. Officers with 24-28 years of experience witnessed a slight rise in chance.
+
+Officers with 2-4 years of experience had the highest number of arrests. Officers with as much as 10 years of experience were more likely to arrest individuals than officers with more than 11 years of experience, who were less likely to arrest subjects. Male police with 3-14 years of experience were predominantly hospitalised, with a median of approximately 7 years of experience. Female officers with 2-11 years of experience were primarily hospitalised, with a median of 4 years of experience.
+
+These insights can assist law enforcement personnel in Dallas, Texas, better understand the nature of occurrences and devise tactics for handling them more decisively.
+
+
+
+
